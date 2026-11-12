@@ -6,7 +6,7 @@ Money == 1..10
 Workers == 1..2
 
 VARIABLES acct, amnt, from, to, pc
-vars = <<acct, amnt, from, to, pc>>
+vars == <<acct, amnt, from, to, pc>>
 
 Init ==
     /\ acct \in [People -> Money]
@@ -38,9 +38,11 @@ Terminating ==
     /\ pc = [w \in Workers |-> "Done"]
     /\ UNCHANGED vars
 
-NEXT ==
+Next ==
     \/ \E w \in Workers: Check(w) \/ Withdraw(w) \/ Deposite(w)
     \/ Terminating
-    
+
+Spec == Init /\ [](Next \/ UNCHANGED vars)
+NoOverdraft == \A p \in People: acct[p] >= 0
     
 ====
