@@ -42,7 +42,7 @@ Next ==
     \/ \E w \in Workers: Check(w) \/ Withdraw(w) \/ Deposite(w)
     \/ Terminating
 
-Spec == Init /\ [](Next \/ UNCHANGED vars)
+Spec == Init /\ [][Next]_vars   
 NoOverdraft == \A p \in People: acct[p] >= 0
-    
+
 ====

@@ -1,0 +1,5 @@
+states/
+*_trace_*.tlc
+*_TTrace_*.tla
+*.out
+.DS_Store
