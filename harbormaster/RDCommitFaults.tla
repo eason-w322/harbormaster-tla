@@ -1,40 +1,29 @@
 ---- MODULE RDCommitFaults ----
-(***************************************************************************)
-(* HarborMaster Stage 1b: RD-Commit (Sec. 4.2) with network and server     *)
-(* faults.                                                                 *)
-(*                                                                         *)
-(* Extends Stage 1 (RDCommit.tla) with:                                    *)
-(*   - Message drop:   the network may lose any message.                   *)
-(*   - Server crash:   at most F servers are down at any time (Sec. 3.1).  *)
-(*   - Server restart: a restarted server keeps its disk but loses its     *)
-(*                     volatile signing key, so it may no longer vote      *)
-(*                     (Sec. 4.3, "Handling restarts").                    *)
-(*                                                                         *)
-(* Not modeled yet: disk rollback, worker crashes, auditor (Stage 2+).     *)
-(***************************************************************************)
+\* Stage 1b: RD-Commit (Sec. 4.2) with message drop, crashes and restarts
+
 EXTENDS Integers, FiniteSets
 
-\* ------------------------------ Constants ------------------------------
-Servers == {"s1", "s2", "s3"}   \* N = 2F + 1 storage servers
-F       == 1                    \* max number of servers down at any time
-MaxSeq  == 3                    \* bound on log entries (keeps the model finite)
+\* Constants
+Servers == {"s1", "s2", "s3"}   \* N = 2F + 1
+F       == 1                    \* max servers down at once
+MaxSeq  == 3                    \* max log entries
 
-\* ------------------------------ Messages -------------------------------
-AppendMsg(i)  == [type |-> "append", seq |-> i]            \* AppendEntries
-VoteMsg(i, s) == [type |-> "vote",   seq |-> i, srv |-> s] \* Vote
+\* Messages
+AppendMsg(i)  == [type |-> "append", seq |-> i]
+VoteMsg(i, s) == [type |-> "vote",   seq |-> i, srv |-> s]
 
-\* -------------------------------- State --------------------------------
+\* State
 VARIABLES
-    n,        \* seq number of the worker's last created entry    (Alg. 1)
-    ci,       \* highest RD-Committed seq number                  (Alg. 1)
-    stored,   \* stored[s] = last contiguous entry on s's disk    (Alg. 2)
-    msgs,     \* set of messages currently in the network
-    up,       \* up[s] = TRUE iff server s is running
-    canVote   \* canVote[s] = TRUE iff s still has its original signing key
+    n,        \* worker's last entry (Alg. 1)
+    ci,       \* worker's commit index (Alg. 1)
+    stored,   \* stored[s] = last entry on s's disk (Alg. 2)
+    msgs,     \* messages in the network
+    up,       \* up[s] = s is running
+    canVote   \* canVote[s] = s has its original key
 
 vars == <<n, ci, stored, msgs, up, canVote>>
 
-Down == {s \in Servers : ~up[s]}   \* the servers currently crashed
+Down == {s \in Servers : ~up[s]}
 
 Init ==
     /\ n = 0
@@ -44,17 +33,16 @@ Init ==
     /\ up      = [s \in Servers |-> TRUE]
     /\ canVote = [s \in Servers |-> TRUE]
 
-\* --------------------------- Protocol actions --------------------------
+\* Protocol actions
 
-\* Steps 0+1 (W, W->S): create entry n+1 and send AppendEntries to all servers
+\* Steps 0+1: create entry n+1 and send it to all servers
 Append ==
     /\ n < MaxSeq
     /\ n' = n + 1
     /\ msgs' = msgs \cup {AppendMsg(n + 1)}
     /\ UNCHANGED <<ci, stored, up, canVote>>
 
-\* Step 2 (S->W): a running server with its original key stores the entry
-\* if it extends its chain, then votes
+\* Step 2: store the next entry in the chain, then vote
 Vote(s) ==
     /\ up[s]
     /\ canVote[s]
@@ -65,10 +53,10 @@ Vote(s) ==
         /\ msgs' = msgs \cup {VoteMsg(m.seq, s)}
     /\ UNCHANGED <<n, ci, up, canVote>>
 
-\* The set of servers whose vote for entry i is in the network
+\* Servers that voted for entry i
 Voters(i) == {s \in Servers : VoteMsg(i, s) \in msgs}
 
-\* Step 3 (W): RD-Commit entry i (and all earlier entries) on F+1 votes
+\* Step 3: commit entry i after F+1 votes
 Commit(i) ==
     /\ ci < i
     /\ i <= n
@@ -76,30 +64,28 @@ Commit(i) ==
     /\ ci' = i
     /\ UNCHANGED <<n, stored, msgs, up, canVote>>
 
-\* ---------------------------- Fault actions ----------------------------
+\* Fault actions
 
-\* The network loses message m
+\* Network loses a message
 Drop ==
     /\ \E m \in msgs: msgs' = msgs \ {m}
     /\ UNCHANGED <<n, ci, stored, up, canVote>>
 
-\* Server s crashes; at most F servers may be down at once.
-\* Its disk (stored[s]) survives; it just stops taking steps.
+\* Server crashes; disk survives; at most F down
 Crash(s) ==
     /\ up[s]
     /\ Cardinality(Down) < F
     /\ up' = [up EXCEPT ![s] = FALSE]
     /\ UNCHANGED <<n, ci, stored, msgs, canVote>>
 
-\* Server s restarts with its disk intact but a fresh signing key that
-\* existing workers do not accept, so it can no longer vote (Sec. 4.3)
+\* Server restarts with a new key, so it can't vote (Sec. 4.3)
 Restart(s) ==
     /\ ~up[s]
     /\ up'      = [up      EXCEPT ![s] = TRUE]
     /\ canVote' = [canVote EXCEPT ![s] = FALSE]
     /\ UNCHANGED <<n, ci, stored, msgs>>
 
-\* -------------------------------- Spec ---------------------------------
+\* Spec
 Next ==
     \/ Append
     \/ \E s \in Servers: Vote(s)
@@ -109,9 +95,9 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
-\* ----------------------------- Properties ------------------------------
+\* Properties
 
-\* Sanity check: every variable always holds the kind of value we expect
+\* Variables hold expected values
 TypeOK ==
     /\ n \in 0..MaxSeq
     /\ ci \in 0..n
@@ -122,13 +108,12 @@ TypeOK ==
     /\ canVote \in [Servers -> BOOLEAN]
     /\ Cardinality(Down) <= F
 
-\* Def. 1 (disk level): every RD-Committed entry is on at least F+1 disks
+\* Def. 1: committed entries are on F+1 disks
 Provable ==
     \A i \in 1..ci:
         Cardinality({s \in Servers : stored[s] >= i}) >= F + 1
 
-\* Def. 1 (as worded in Sec. 3.4): a NON-CRASHED server can prove every
-\* RD-Committed entry, even while up to F servers are down
+\* Def. 1: a running server holds every committed entry
 ProvableByLiveServer ==
     \A i \in 1..ci:
         \E s \in Servers: up[s] /\ stored[s] >= i

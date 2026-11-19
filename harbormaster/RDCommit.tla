@@ -1,25 +1,23 @@
 ---- MODULE RDCommit ----
-(***************************************************************************)
-(* HarborMaster Stage 1: steady-state logging and RD-Commit (Sec. 4.2).    *)
-(* One worker, N = 2F+1 storage servers. No crashes or rollbacks yet.      *)
-(***************************************************************************)
+\* Stage 1: RD-Commit (Sec. 4.2), no faults
+
 EXTENDS Integers, FiniteSets
 
-\* ------------------------------ Constants ------------------------------
-Servers == {"s1", "s2", "s3"}   \* N = 2F + 1 storage servers
-F       == 1                    \* max number of servers that can crash
-MaxSeq  == 3                    \* bound on log entries (keeps the model finite)
+\* Constants
+Servers == {"s1", "s2", "s3"}   \* N = 2F + 1
+F       == 1                    \* max servers down at once
+MaxSeq  == 3                    \* max log entries
 
-\* ------------------------------ Messages -------------------------------
-AppendMsg(i)  == [type |-> "append", seq |-> i]            \* AppendEntries
-VoteMsg(i, s) == [type |-> "vote",   seq |-> i, srv |-> s] \* Vote
+\* Messages
+AppendMsg(i)  == [type |-> "append", seq |-> i]
+VoteMsg(i, s) == [type |-> "vote",   seq |-> i, srv |-> s]
 
-\* -------------------------------- State --------------------------------
+\* State
 VARIABLES
-    n,       \* seq number of the worker's last created entry    (Alg. 1)
-    ci,      \* highest RD-Committed seq number                  (Alg. 1)
-    stored,  \* stored[s] = last contiguous entry server s holds (Alg. 2)
-    msgs     \* set of all messages ever sent (the network)
+    n,       \* worker's last entry (Alg. 1)
+    ci,      \* worker's commit index (Alg. 1)
+    stored,  \* stored[s] = last entry on s's disk (Alg. 2)
+    msgs     \* messages in the network
 
 vars == <<n, ci, stored, msgs>>
 
@@ -29,16 +27,16 @@ Init ==
     /\ stored = [s \in Servers |-> 0]
     /\ msgs = {}
 
-\* ------------------------------- Actions -------------------------------
+\* Actions
 
-\* Steps 0+1 (W, W->S): create entry n+1 and send AppendEntries to all servers
+\* Steps 0+1: create entry n+1 and send it to all servers
 Append ==
     /\ n < MaxSeq
     /\ n' = n + 1
     /\ msgs' = msgs \cup {AppendMsg(n + 1)}
     /\ UNCHANGED <<ci, stored>>
 
-\* Step 2 (S->W): server s stores the entry if it extends its chain, then votes
+\* Step 2: store the next entry in the chain, then vote
 Vote(s) ==
     \E m \in msgs:
         /\ m.type = "append"
@@ -47,10 +45,10 @@ Vote(s) ==
         /\ msgs' = msgs \cup {VoteMsg(m.seq, s)}
         /\ UNCHANGED <<n, ci>>
 
-\* The set of servers that have voted for entry i
+\* Servers that voted for entry i
 Voters(i) == {s \in Servers : VoteMsg(i, s) \in msgs}
 
-\* Step 3 (W): RD-Commit entry i once F+1 servers have voted for it
+\* Step 3: commit entry i after F+1 votes
 Commit(i) ==
     /\ ci < i
     /\ i <= n
@@ -58,7 +56,7 @@ Commit(i) ==
     /\ ci' = i
     /\ UNCHANGED <<n, stored, msgs>>
 
-\* -------------------------------- Spec ---------------------------------
+\* Spec
 Next ==
     \/ Append
     \/ \E s \in Servers: Vote(s)
@@ -66,8 +64,9 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
-\* ----------------------------- Properties ------------------------------
-\* Sanity check: every variable always holds the kind of value we expect
+\* Properties
+
+\* Variables hold expected values
 TypeOK ==
     /\ n \in 0..MaxSeq
     /\ ci \in 0..n
@@ -75,7 +74,7 @@ TypeOK ==
     /\ msgs \subseteq {AppendMsg(i) : i \in 1..MaxSeq}
                     \cup {VoteMsg(i, s) : i \in 1..MaxSeq, s \in Servers}
 
-\* Def. 1: every RD-Committed entry is stored on at least F+1 servers
+\* Def. 1: committed entries are on F+1 disks
 Provable ==
     \A i \in 1..ci:
         Cardinality({s \in Servers : stored[s] >= i}) >= F + 1
