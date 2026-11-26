@@ -10,7 +10,7 @@ MaxSeq  == 3                    \* max log entries
 
 \* TRUE:  at most F servers ever crash (each crash wipes TEE memory)
 \* FALSE: at most F servers down at once, but crashes can repeat
-BoundTotalCrashes == TRUE
+BoundTotalCrashes == FALSE
 
 \* Messages
 AppendMsg(i)  == [type |-> "append", seq |-> i]
